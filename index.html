@@ -66,20 +66,24 @@
     <div class="controls" style="display: none;">
         <h3>Fish Trail Effect Controls</h3>
         <label for="particleCount">Particles per frame:</label>
-        <input type="range" id="particleCount" min="1" max="20" value="5">
-        <span id="particleCountValue">5</span>
+        <input type="range" id="particleCount" min="1" max="40" value="10">
+        <span id="particleCountValue">10</span>
 
         <label for="fadeSpeed">Fade speed:</label>
         <input type="range" id="fadeSpeed" min="1" max="50" value="25">
         <span id="fadeSpeedValue">25</span>
 
         <label for="particleSize">Particle size:</label>
-        <input type="range" id="particleSize" min="1" max="30" value="8">
-        <span id="particleSizeValue">8</span>
+        <input type="range" id="particleSize" min="1" max="30" value="12">
+        <span id="particleSizeValue">12</span>
 
         <label for="upwardForce">Upward force:</label>
         <input type="range" id="upwardForce" min="0" max="5" value="2" step="0.1">
         <span id="upwardForceValue">2</span>
+
+        <label for="trailDensity">Trail density:</label>
+        <input type="range" id="trailDensity" min="1" max="10" value="5">
+        <span id="trailDensityValue">5</span>
 
         <label for="colorScheme">Color scheme:</label>
         <select id="colorScheme">
@@ -117,15 +121,18 @@
         let fishY = 0;
         let prevFishX = 0;
         let prevFishY = 0;
+        let oldFishX = 0;  // Store position from previous frame
+        let oldFishY = 0;
         
         // For smoothing fish movement
-        let lerpAmount = 0.2;
+        let lerpAmount = 0.4;  // Increased for smoother transition
         
         // Control variables
-        let particleCount = 5;
+        let particleCount = 10;  // Increased default particles
         let fadeSpeed = 25;
-        let particleSize = 8;  // Default to a larger size
+        let particleSize = 12;  // Increased default size
         let upwardForce = 2;
+        let trailDensity = 5;  // New control for trail continuity
         let colorScheme = "blue";
         let effectType = "bubbles";
         
@@ -139,7 +146,7 @@
         let serverPort = 5000;
         
         // Poll interval for getting fish position (milliseconds)
-        const POLL_INTERVAL = 50;
+        const POLL_INTERVAL = 30;  // Decreased polling interval for smoother tracking
         
         document.addEventListener('DOMContentLoaded', function() {
             // Toggle controls visibility
@@ -202,6 +209,8 @@
             fishY = height / 2;
             prevFishX = fishX;
             prevFishY = fishY;
+            oldFishX = fishX;
+            oldFishY = fishY;
             
             // Start polling for fish position
             setInterval(getFishPosition, POLL_INTERVAL);
@@ -242,6 +251,14 @@
                 });
             }
             
+            const trailDensityInput = document.getElementById("trailDensity");
+            if (trailDensityInput) {
+                trailDensityInput.addEventListener("input", function() {
+                    trailDensity = parseInt(this.value);
+                    document.getElementById("trailDensityValue").textContent = trailDensity;
+                });
+            }
+            
             const colorSchemeSelect = document.getElementById("colorScheme");
             if (colorSchemeSelect) {
                 colorSchemeSelect.addEventListener("change", function() {
@@ -263,13 +280,33 @@
             // Semi-transparent background for trail effect
             background(0, 255 - fadeSpeed);
             
-            // Smooth fish position transitions
-            prevFishX = fishX;
-            prevFishY = fishY;
+            // Store current position before update
+            oldFishX = fishX;
+            oldFishY = fishY;
             
-            // Create new particles at fish position if it's moving
-            if (dist(fishX, fishY, prevFishX, prevFishY) > 0.5 || random() < 0.1) {
-                createParticles();
+            // Update fish position with smoother interpolation 
+            fishX = lerp(fishX, prevFishX, lerpAmount);
+            fishY = lerp(fishY, prevFishY, lerpAmount);
+            
+            // Create particles along the path between old and new position
+            const distance = dist(oldFishX, oldFishY, fishX, fishY);
+            
+            // If the fish moved significantly, create trail particles along the path
+            if (distance > 2) {
+                // Number of intermediate points based on distance and trail density
+                const steps = max(1, min(10, floor(distance * trailDensity / 30)));
+                
+                // Create particles at intermediate points to fill the gaps
+                for (let i = 0; i <= steps; i++) {
+                    const t = i / steps;
+                    const x = lerp(oldFishX, fishX, t);
+                    const y = lerp(oldFishY, fishY, t);
+                    
+                    createParticlesAt(x, y);
+                }
+            } else {
+                // If movement is small, just create particles at current position
+                createParticlesAt(fishX, fishY);
             }
             
             // Update and display particles
@@ -304,8 +341,8 @@
                     fishMoving = (Math.abs(data.x - oldX) > 0.001 || Math.abs(data.y - oldY) > 0.001);
                     
                     // Convert normalized coordinates (0-1) to pixel coordinates
-                    fishX = data.x * width;
-                    fishY = data.y * height;
+                    prevFishX = data.x * width;
+                    prevFishY = data.y * height;
                     
                     apiSuccess = true;
                     updateDebugInfo();
@@ -335,38 +372,46 @@
             debugEl.style.color = apiSuccess ? 'white' : 'red';
         }
         
-        // Create particles around the fish
-        function createParticles() {
+        // Create particles at specific location
+        function createParticlesAt(x, y) {
             switch(effectType) {
                 case "bubbles":
-                    createBubbleParticles();
+                    createBubbleParticlesAt(x, y);
                     break;
                 case "fireworks":
-                    createFireworkParticles();
+                    createFireworkParticlesAt(x, y);
                     break;
                 case "flowerBlossoms":
-                    createFlowerBlossomParticles();
+                    createFlowerBlossomParticlesAt(x, y);
                     break;
                 case "sparkles":
-                    createSparkleParticles();
+                    createSparkleParticlesAt(x, y);
                     break;
                 case "pixelDust":
-                    createPixelDustParticles();
+                    createPixelDustParticlesAt(x, y);
                     break;
                 default:
-                    createBubbleParticles();
+                    createBubbleParticlesAt(x, y);
             }
         }
         
-        // Create standard bubble particles (original effect)
-        function createBubbleParticles() {
+        // Create particles at the fish position - main creation function
+        function createParticles() {
+            createParticlesAt(fishX, fishY);
+        }
+        
+        // Create standard bubble particles at specific location
+        function createBubbleParticlesAt(x, y) {
             // Get color range based on selected scheme
             let hueRange = getColorRange();
             
-            for (let i = 0; i < particleCount; i++) {
+            // Create fewer particles per location point but maintain good density
+            const localParticleCount = max(1, floor(particleCount / 3));
+            
+            for (let i = 0; i < localParticleCount; i++) {
                 particles.push({
-                    x: fishX + random(-5, 5),
-                    y: fishY + random(-5, 5),
+                    x: x + random(-5, 5),
+                    y: y + random(-5, 5),
                     vx: random(-1, 1),
                     vy: random(-upwardForce - 1, -upwardForce + 0.5), // Mostly upward motion
                     alpha: 255,
@@ -380,15 +425,15 @@
             }
         }
         
-        // Create firework explosion particles
-        function createFireworkParticles() {
+        // Create firework explosion particles at specific location
+        function createFireworkParticlesAt(x, y) {
             let hueRange = getColorRange();
             let baseHue = random(hueRange.min, hueRange.max);
             
             // Create fewer but more impactful bursts
-            if (frameCount % 10 === 0 && (dist(fishX, fishY, prevFishX, prevFishY) > 3 || random() < 0.1)) {
+            if (frameCount % 10 === 0 && random() < 0.3) {
                 // Number of particles in the explosion
-                let explosionSize = particleCount * 5;
+                let explosionSize = particleCount * 3;
                 
                 for (let i = 0; i < explosionSize; i++) {
                     // Calculate angle and velocity for radial explosion
@@ -396,8 +441,8 @@
                     let speed = random(1, 5);
                     
                     particles.push({
-                        x: fishX,
-                        y: fishY,
+                        x: x,
+                        y: y,
                         vx: cos(angle) * speed,
                         vy: sin(angle) * speed,
                         alpha: 255,
@@ -414,20 +459,23 @@
             }
         }
         
-        // Create flower blossom particles
-        function createFlowerBlossomParticles() {
+        // Create flower blossom particles at specific location
+        function createFlowerBlossomParticlesAt(x, y) {
             let hueRange = { min: 320, max: 360 }; // Pink to light red colors
             if (colorScheme === "rainbow") {
                 hueRange = { min: 0, max: 255 };
             }
             
-            for (let i = 0; i < particleCount; i++) {
+            // Create fewer particles per location point
+            const localParticleCount = max(1, floor(particleCount / 4));
+            
+            for (let i = 0; i < localParticleCount; i++) {
                 // Create petal-like shapes that float gently
                 let size = random(particleSize * 0.8, particleSize * 3); // Larger size range for petals
                 
                 particles.push({
-                    x: fishX + random(-5, 5),
-                    y: fishY + random(-5, 5),
+                    x: x + random(-5, 5),
+                    y: y + random(-5, 5),
                     vx: random(-0.5, 0.5),
                     vy: random(-0.7, -0.3) * upwardForce / 2,
                     alpha: 255,
@@ -445,14 +493,17 @@
             }
         }
         
-        // Create sparkle particles
-        function createSparkleParticles() {
+        // Create sparkle particles at specific location
+        function createSparkleParticlesAt(x, y) {
             let hueRange = getColorRange();
             
-            for (let i = 0; i < particleCount; i++) {
+            // Create fewer particles per location point
+            const localParticleCount = max(1, floor(particleCount / 3));
+            
+            for (let i = 0; i < localParticleCount; i++) {
                 particles.push({
-                    x: fishX + random(-10, 10),
-                    y: fishY + random(-10, 10),
+                    x: x + random(-10, 10),
+                    y: y + random(-10, 10),
                     vx: random(-1, 1),
                     vy: random(-upwardForce/2, upwardForce/2),
                     alpha: 255,
@@ -468,15 +519,18 @@
             }
         }
         
-        // Create pixel dust particles
-        function createPixelDustParticles() {
+        // Create pixel dust particles at specific location
+        function createPixelDustParticlesAt(x, y) {
             let hueRange = getColorRange();
             
-            for (let i = 0; i < particleCount * 2; i++) {
+            // Create fewer particles per location point
+            const localParticleCount = max(1, floor(particleCount / 2));
+            
+            for (let i = 0; i < localParticleCount; i++) {
                 const pSize = random(particleSize * 0.2, particleSize * 0.8); // Better size control for pixels
                 particles.push({
-                    x: fishX + random(-5, 5),
-                    y: fishY + random(-5, 5),
+                    x: x + random(-5, 5),
+                    y: y + random(-5, 5),
                     vx: random(-2, 2),
                     vy: random(-2, 2),
                     alpha: 255,
@@ -511,6 +565,13 @@
         
         // Update and display all particles
         function updateParticles() {
+            // Limit maximum particles for performance
+            const maxParticles = 1000; 
+            if (particles.length > maxParticles) {
+                // Remove oldest particles
+                particles.splice(0, particles.length - maxParticles);
+            }
+            
             for (let i = particles.length - 1; i >= 0; i--) {
                 let p = particles[i];
                 
