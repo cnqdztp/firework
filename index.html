@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Fish Tank</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: black;
+        }
+        canvas {
+            display: block;
+        }
+        .controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            color: white;
+            font-family: Arial, sans-serif;
+            z-index: 1000;
+        }
+        .controls input, .controls select {
+            margin: 5px 0;
+            width: 100%;
+        }
+        .controls label {
+            display: block;
+            margin-top: 10px;
+        }
+        #toggleControls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 5px 10px;
+            cursor: pointer;
+            z-index: 1001;
+        }
+        #debugInfo {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            font-family: Arial, sans-serif;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <button id="toggleControls">Show Controls</button>
+    
+    <div class="controls" style="display: none;">
+        <h3>Fish Trail Effect Controls</h3>
+        <label for="particleCount">Particles per frame:</label>
+        <input type="range" id="particleCount" min="1" max="20" value="5">
+        <span id="particleCountValue">5</span>
+
+        <label for="fadeSpeed">Fade speed:</label>
+        <input type="range" id="fadeSpeed" min="1" max="50" value="25">
+        <span id="fadeSpeedValue">25</span>
+
+        <label for="particleSize">Particle size:</label>
+        <input type="range" id="particleSize" min="1" max="30" value="8">
+        <span id="particleSizeValue">8</span>
+
+        <label for="upwardForce">Upward force:</label>
+        <input type="range" id="upwardForce" min="0" max="5" value="2" step="0.1">
+        <span id="upwardForceValue">2</span>
+
+        <label for="colorScheme">Color scheme:</label>
+        <select id="colorScheme">
+            <option value="blue">Blue</option>
+            <option value="purple">Purple</option>
+            <option value="rainbow">Rainbow</option>
+            <option value="fire">Fire</option>
+            <option value="green">Green</option>
+        </select>
+        
+        <label for="effectType">Effect type:</label>
+        <select id="effectType">
+            <option value="bubbles">Bubbles</option>
+            <option value="fireworks">Fireworks</option>
+            <option value="flowerBlossoms">Flower Blossoms</option>
+            <option value="sparkles">Sparkles</option>
+            <option value="pixelDust">Pixel Dust</option>
+        </select>
+        
+        <div style="margin-top: 15px; border-top: 1px solid #444; padding-top: 10px;">
+            <label for="serverPort">Server Port:</label>
+            <input type="number" id="serverPort" value="5000" style="width: 80px;">
+            <button id="applyPort" style="margin-left: 10px;">Apply</button>
+        </div>
+    </div>
+    
+    <div id="debugInfo"></div>
+
+    <script>
+        // Particle system
+        let particles = [];
+        
+        // Fish position
+        let fishX = 0;
+        let fishY = 0;
+        let prevFishX = 0;
+        let prevFishY = 0;
+        
+        // For smoothing fish movement
+        let lerpAmount = 0.2;
+        
+        // Control variables
+        let particleCount = 5;
+        let fadeSpeed = 25;
+        let particleSize = 8;  // Default to a larger size
+        let upwardForce = 2;
+        let colorScheme = "blue";
+        let effectType = "bubbles";
+        
+        // Debug information
+        let lastApiCall = 0;
+        let apiSuccess = false;
+        let lastPosition = {x: 0.5, y: 0.5};
+        let fishMoving = false;
+        
+        // Server port (will be updated from config.json if available)
+        let serverPort = 5000;
+        
+        // Poll interval for getting fish position (milliseconds)
+        const POLL_INTERVAL = 50;
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            // Toggle controls visibility
+            const toggleBtn = document.getElementById('toggleControls');
+            const controlsPanel = document.querySelector('.controls');
+            
+            toggleBtn.addEventListener('click', function() {
+                if (controlsPanel.style.display === 'none') {
+                    controlsPanel.style.display = 'block';
+                    toggleBtn.textContent = 'Hide Controls';
+                } else {
+                    controlsPanel.style.display = 'none';
+                    toggleBtn.textContent = 'Show Controls';
+                }
+            });
+            
+            // Server port change
+            const portInput = document.getElementById('serverPort');
+            const applyPortBtn = document.getElementById('applyPort');
+            
+            applyPortBtn.addEventListener('click', function() {
+                serverPort = parseInt(portInput.value);
+                console.log(`Server port changed to ${serverPort}`);
+                updateDebugInfo();
+            });
+        });
+        
+        function preload() {
+            // Try to load server port from config.json (generated from config.ini)
+            fetch('config.json')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.Server && data.Server.port) {
+                        serverPort = parseInt(data.Server.port);
+                        console.log(`Server port loaded from config: ${serverPort}`);
+                        
+                        // Update the input field
+                        const portInput = document.getElementById('serverPort');
+                        if (portInput) {
+                            portInput.value = serverPort;
+                        }
+                        
+                        updateDebugInfo();
+                    }
+                })
+                .catch(error => {
+                    console.log('Error loading config, using default port:', error);
+                    updateDebugInfo();
+                });
+        }
+        
+        function setup() {
+            // Create canvas that covers the entire screen
+            createCanvas(windowWidth, windowHeight);
+            colorMode(HSB, 255);
+            background(0);
+            
+            // Set initial fish position to center
+            fishX = width / 2;
+            fishY = height / 2;
+            prevFishX = fishX;
+            prevFishY = fishY;
+            
+            // Start polling for fish position
+            setInterval(getFishPosition, POLL_INTERVAL);
+            
+            // Update debug info periodically
+            setInterval(updateDebugInfo, 1000);
+            
+            // Setup control event listeners
+            const particleCountInput = document.getElementById("particleCount");
+            if (particleCountInput) {
+                particleCountInput.addEventListener("input", function() {
+                    particleCount = parseInt(this.value);
+                    document.getElementById("particleCountValue").textContent = particleCount;
+                });
+            }
+            
+            const fadeSpeedInput = document.getElementById("fadeSpeed");
+            if (fadeSpeedInput) {
+                fadeSpeedInput.addEventListener("input", function() {
+                    fadeSpeed = parseInt(this.value);
+                    document.getElementById("fadeSpeedValue").textContent = fadeSpeed;
+                });
+            }
+            
+            const particleSizeInput = document.getElementById("particleSize");
+            if (particleSizeInput) {
+                particleSizeInput.addEventListener("input", function() {
+                    particleSize = parseInt(this.value);
+                    document.getElementById("particleSizeValue").textContent = particleSize;
+                });
+            }
+            
+            const upwardForceInput = document.getElementById("upwardForce");
+            if (upwardForceInput) {
+                upwardForceInput.addEventListener("input", function() {
+                    upwardForce = parseFloat(this.value);
+                    document.getElementById("upwardForceValue").textContent = upwardForce;
+                });
+            }
+            
+            const colorSchemeSelect = document.getElementById("colorScheme");
+            if (colorSchemeSelect) {
+                colorSchemeSelect.addEventListener("change", function() {
+                    colorScheme = this.value;
+                });
+            }
+            
+            const effectTypeSelect = document.getElementById("effectType");
+            if (effectTypeSelect) {
+                effectTypeSelect.addEventListener("change", function() {
+                    effectType = this.value;
+                    // Clear existing particles when changing effect type
+                    particles = [];
+                });
+            }
+        }
+        
+        function draw() {
+            // Semi-transparent background for trail effect
+            background(0, 255 - fadeSpeed);
+            
+            // Smooth fish position transitions
+            prevFishX = fishX;
+            prevFishY = fishY;
+            
+            // Create new particles at fish position if it's moving
+            if (dist(fishX, fishY, prevFishX, prevFishY) > 0.5 || random() < 0.1) {
+                createParticles();
+            }
+            
+            // Update and display particles
+            updateParticles();
+            
+            // Optional: Draw a small circle to represent the fish position for debugging
+            noStroke();
+            fill(200, 150, 255, 100);
+            ellipse(fishX, fishY, 10, 10);
+        }
+        
+        // Get fish position from Python backend
+        function getFishPosition() {
+            lastApiCall = Date.now();
+            
+            fetch(`http://localhost:${serverPort}/position`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // Store previous position to check if fish is moving
+                    const oldX = lastPosition.x;
+                    const oldY = lastPosition.y;
+                    
+                    // Update last known position
+                    lastPosition = {x: data.x, y: data.y};
+                    
+                    // Check if position has changed
+                    fishMoving = (Math.abs(data.x - oldX) > 0.001 || Math.abs(data.y - oldY) > 0.001);
+                    
+                    // Convert normalized coordinates (0-1) to pixel coordinates
+                    fishX = data.x * width;
+                    fishY = data.y * height;
+                    
+                    apiSuccess = true;
+                    updateDebugInfo();
+                })
+                .catch(error => {
+                    console.error('Error fetching fish position:', error);
+                    apiSuccess = false;
+                    updateDebugInfo();
+                });
+        }
+        
+        // Update debug information
+        function updateDebugInfo() {
+            const debugEl = document.getElementById('debugInfo');
+            if (!debugEl) return;
+            
+            const timeSinceLastCall = Date.now() - lastApiCall;
+            const status = apiSuccess ? '✅ Connected' : '❌ Disconnected';
+            const position = `Fish: x=${lastPosition.x.toFixed(2)}, y=${lastPosition.y.toFixed(2)}`;
+            const movement = fishMoving ? '✅ Fish moving' : '⚠️ Fish stationary';
+            
+            debugEl.innerHTML = `
+                API: ${status} | Port: ${serverPort} | ${position} | ${movement} | 
+                Particles: ${particles.length} | Effect: ${effectType}
+            `;
+            
+            debugEl.style.color = apiSuccess ? 'white' : 'red';
+        }
+        
+        // Create particles around the fish
+        function createParticles() {
+            switch(effectType) {
+                case "bubbles":
+                    createBubbleParticles();
+                    break;
+                case "fireworks":
+                    createFireworkParticles();
+                    break;
+                case "flowerBlossoms":
+                    createFlowerBlossomParticles();
+                    break;
+                case "sparkles":
+                    createSparkleParticles();
+                    break;
+                case "pixelDust":
+                    createPixelDustParticles();
+                    break;
+                default:
+                    createBubbleParticles();
+            }
+        }
+        
+        // Create standard bubble particles (original effect)
+        function createBubbleParticles() {
+            // Get color range based on selected scheme
+            let hueRange = getColorRange();
+            
+            for (let i = 0; i < particleCount; i++) {
+                particles.push({
+                    x: fishX + random(-5, 5),
+                    y: fishY + random(-5, 5),
+                    vx: random(-1, 1),
+                    vy: random(-upwardForce - 1, -upwardForce + 0.5), // Mostly upward motion
+                    alpha: 255,
+                    size: random(particleSize * 0.5, particleSize * 2), // More varied sizes based on slider
+                    hue: random(hueRange.min, hueRange.max),
+                    saturation: 200,
+                    brightness: 255,
+                    lifespan: random(40, 80),
+                    type: "bubble"
+                });
+            }
+        }
+        
+        // Create firework explosion particles
+        function createFireworkParticles() {
+            let hueRange = getColorRange();
+            let baseHue = random(hueRange.min, hueRange.max);
+            
+            // Create fewer but more impactful bursts
+            if (frameCount % 10 === 0 && (dist(fishX, fishY, prevFishX, prevFishY) > 3 || random() < 0.1)) {
+                // Number of particles in the explosion
+                let explosionSize = particleCount * 5;
+                
+                for (let i = 0; i < explosionSize; i++) {
+                    // Calculate angle and velocity for radial explosion
+                    let angle = random(TWO_PI);
+                    let speed = random(1, 5);
+                    
+                    particles.push({
+                        x: fishX,
+                        y: fishY,
+                        vx: cos(angle) * speed,
+                        vy: sin(angle) * speed,
+                        alpha: 255,
+                        size: random(particleSize * 0.3, particleSize * 1.5), // Varied sizes
+                        hue: baseHue + random(-10, 10),
+                        saturation: 200,
+                        brightness: 255,
+                        lifespan: random(20, 50),
+                        type: "firework",
+                        decay: random(0.9, 0.95),
+                        angle: angle
+                    });
+                }
+            }
+        }
+        
+        // Create flower blossom particles
+        function createFlowerBlossomParticles() {
+            let hueRange = { min: 320, max: 360 }; // Pink to light red colors
+            if (colorScheme === "rainbow") {
+                hueRange = { min: 0, max: 255 };
+            }
+            
+            for (let i = 0; i < particleCount; i++) {
+                // Create petal-like shapes that float gently
+                let size = random(particleSize * 0.8, particleSize * 3); // Larger size range for petals
+                
+                particles.push({
+                    x: fishX + random(-5, 5),
+                    y: fishY + random(-5, 5),
+                    vx: random(-0.5, 0.5),
+                    vy: random(-0.7, -0.3) * upwardForce / 2,
+                    alpha: 255,
+                    size: size,
+                    hue: random(hueRange.min, hueRange.max),
+                    saturation: random(100, 180),
+                    brightness: 255,
+                    lifespan: random(80, 150),
+                    type: "blossom",
+                    rotation: random(TWO_PI),
+                    rotationSpeed: random(-0.05, 0.05),
+                    wigglePhase: random(TWO_PI),
+                    wiggleFrequency: random(0.05, 0.1)
+                });
+            }
+        }
+        
+        // Create sparkle particles
+        function createSparkleParticles() {
+            let hueRange = getColorRange();
+            
+            for (let i = 0; i < particleCount; i++) {
+                particles.push({
+                    x: fishX + random(-10, 10),
+                    y: fishY + random(-10, 10),
+                    vx: random(-1, 1),
+                    vy: random(-upwardForce/2, upwardForce/2),
+                    alpha: 255,
+                    size: random(particleSize * 0.3, particleSize * 1.2), // Better size range for sparkles
+                    hue: random(hueRange.min, hueRange.max),
+                    saturation: 150,
+                    brightness: 255,
+                    lifespan: random(20, 40),
+                    type: "sparkle",
+                    flickerRate: random(0.1, 0.3),
+                    flickerPhase: random(TWO_PI)
+                });
+            }
+        }
+        
+        // Create pixel dust particles
+        function createPixelDustParticles() {
+            let hueRange = getColorRange();
+            
+            for (let i = 0; i < particleCount * 2; i++) {
+                const pSize = random(particleSize * 0.2, particleSize * 0.8); // Better size control for pixels
+                particles.push({
+                    x: fishX + random(-5, 5),
+                    y: fishY + random(-5, 5),
+                    vx: random(-2, 2),
+                    vy: random(-2, 2),
+                    alpha: 255,
+                    size: pSize,
+                    hue: random(hueRange.min, hueRange.max),
+                    saturation: 200,
+                    brightness: 255,
+                    lifespan: random(20, 60),
+                    type: "pixel",
+                    originalSize: pSize
+                });
+            }
+        }
+        
+        // Get color range based on selected scheme
+        function getColorRange() {
+            switch(colorScheme) {
+                case "blue":
+                    return { min: 160, max: 200 };
+                case "purple":
+                    return { min: 200, max: 240 };
+                case "rainbow":
+                    return { min: 0, max: 255 };
+                case "fire":
+                    return { min: 0, max: 40 };
+                case "green":
+                    return { min: 90, max: 140 };
+                default:
+                    return { min: 160, max: 200 };
+            }
+        }
+        
+        // Update and display all particles
+        function updateParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                
+                // Update position
+                p.x += p.vx;
+                p.y += p.vy;
+                
+                // Decrease lifespan
+                p.lifespan--;
+                
+                // Type-specific updates
+                switch(p.type) {
+                    case "bubble":
+                        updateBubbleParticle(p);
+                        break;
+                    case "firework":
+                        updateFireworkParticle(p);
+                        break;
+                    case "blossom":
+                        updateBlossomParticle(p);
+                        break;
+                    case "sparkle":
+                        updateSparkleParticle(p);
+                        break;
+                    case "pixel":
+                        updatePixelParticle(p);
+                        break;
+                    default:
+                        updateBubbleParticle(p);
+                }
+                
+                // Remove dead particles
+                if (p.lifespan <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+        }
+        
+        // Update bubble particles (original effect)
+        function updateBubbleParticle(p) {
+            // Add some wiggle
+            p.x += random(-0.5, 0.5);
+            
+            // Slow down vertical speed (simulate water resistance)
+            p.vy *= 0.97;
+            
+            // Decrease alpha over time (fade out)
+            p.alpha = map(p.lifespan, 0, 80, 0, 255);
+            
+            // Display particle
+            noStroke();
+            fill(p.hue, p.saturation, p.brightness, p.alpha);
+            ellipse(p.x, p.y, p.size, p.size);
+        }
+        
+        // Update firework particles
+        function updateFireworkParticle(p) {
+            // Decelerate particles over time
+            p.vx *= p.decay;
+            p.vy *= p.decay;
+            
+            // Add gravity effect
+            p.vy += 0.03;
+            
+            // Decrease alpha over time (fade out)
+            p.alpha = map(p.lifespan, 0, 50, 0, 255);
+            
+            // Shrink size as it fades
+            let currentSize = map(p.lifespan, 0, 50, 0, p.size);
+            
+            // Display particle
+            noStroke();
+            fill(p.hue, p.saturation, p.brightness, p.alpha);
+            ellipse(p.x, p.y, currentSize, currentSize);
+            
+            // Create trail effect for some particles
+            if (random() < 0.3) {
+                fill(p.hue, p.saturation - 50, p.brightness, p.alpha * 0.5);
+                ellipse(p.x - p.vx, p.y - p.vy, currentSize * 0.7, currentSize * 0.7);
+            }
+        }
+        
+        // Update flower blossom particles
+        function updateBlossomParticle(p) {
+            // Add gentle swaying motion
+            p.x += sin(frameCount * p.wiggleFrequency + p.wigglePhase) * 0.3;
+            
+            // Slow falling
+            p.vy *= 0.99;
+            
+            // Update rotation
+            p.rotation += p.rotationSpeed;
+            
+            // Decrease alpha over time (fade out)
+            p.alpha = map(p.lifespan, 0, 150, 0, 255);
+            
+            // Display petal shape
+            noStroke();
+            fill(p.hue, p.saturation, p.brightness, p.alpha);
+            
+            push();
+            translate(p.x, p.y);
+            rotate(p.rotation);
+            
+            // Draw petal shape
+            beginShape();
+            for (let a = 0; a < TWO_PI; a += 0.1) {
+                let r = p.size * (1 + sin(a * 5) * 0.3);
+                let x = cos(a) * r;
+                let y = sin(a) * r;
+                vertex(x, y);
+            }
+            endShape(CLOSE);
+            pop();
+        }
+        
+        // Update sparkle particles
+        function updateSparkleParticle(p) {
+            // Flicker effect
+            let flickerAmount = sin(frameCount * p.flickerRate + p.flickerPhase);
+            let displayBrightness = p.brightness * (0.5 + flickerAmount * 0.5);
+            
+            // Random movement
+            p.vx += random(-0.1, 0.1);
+            p.vy += random(-0.1, 0.1);
+            
+            // Limit velocity
+            p.vx = constrain(p.vx, -1, 1);
+            p.vy = constrain(p.vy, -1, 1);
+            
+            // Decrease alpha over time (fade out)
+            p.alpha = map(p.lifespan, 0, 40, 0, 255);
+            
+            // Display particle with star shape
+            noStroke();
+            fill(p.hue, p.saturation, displayBrightness, p.alpha);
+            
+            push();
+            translate(p.x, p.y);
+            
+            // Draw star shape
+            let outerRadius = p.size;
+            let innerRadius = p.size * 0.4;
+            let numPoints = 5;
+            
+            beginShape();
+            for (let i = 0; i < numPoints * 2; i++) {
+                let radius = i % 2 === 0 ? outerRadius : innerRadius;
+                let angle = map(i, 0, numPoints * 2, 0, TWO_PI);
+                let x = cos(angle) * radius;
+                let y = sin(angle) * radius;
+                vertex(x, y);
+            }
+            endShape(CLOSE);
+            pop();
+        }
+        
+        // Update pixel dust particles
+        function updatePixelParticle(p) {
+            // Friction effect
+            p.vx *= 0.95;
+            p.vy *= 0.95;
+            
+            // Pulsing size effect
+            let sizeMultiplier = map(sin(frameCount * 0.2), -1, 1, 0.8, 1.2);
+            let displaySize = p.originalSize * sizeMultiplier;
+            
+            // Decrease alpha over time (fade out)
+            p.alpha = map(p.lifespan, 0, 60, 0, 255);
+            
+            // Display particle as square (pixel)
+            noStroke();
+            fill(p.hue, p.saturation, p.brightness, p.alpha);
+            rectMode(CENTER);
+            rect(p.x, p.y, displaySize, displaySize);
+        }
+        
+        // Handle window resize
+        function windowResized() {
+            resizeCanvas(windowWidth, windowHeight);
+            background(0);
+        }
+    </script>
+</body>
+</html>
