@@ -1,4 +1,4 @@
-# Interactive Fish Tank with Firework Effects
+# Magic Fish Tank
 
 This project creates an interactive fish tank that displays visual effects (like fireworks) that follow your fish as they swim around.
 
